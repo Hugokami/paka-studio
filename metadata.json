@@ -1,0 +1,5 @@
+{
+  "name": "Paka Studio",
+  "description": "Combine multiple reference photos to generate creative new images using the Gemini 'nano banana' model.",
+  "requestFramePermissions": []
+}
