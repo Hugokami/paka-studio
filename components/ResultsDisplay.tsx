@@ -1,5 +1,4 @@
 import React from 'react';
-import Loader from './Loader';
 import ErrorDisplay from './ErrorDisplay';
 import ImageGrid from './ImageGrid';
 import { UploadedFile } from '../types';
@@ -12,18 +11,13 @@ interface ResultsDisplayProps {
     onUpscaleClick: (src: string) => void;
     onEditClick: (src: string) => void;
     onDrawClick: (src: string) => void;
+    onRegenerateClick: (index: number) => void;
+    regeneratingIndex: number | null;
     upscalingUrl: string | null;
     imageCount: number;
     selectedFiles: UploadedFile[];
+    uploadedFiles: UploadedFile[];
 }
-
-const ShimmerPlaceholder = ({ imageSrc }) => (
-    <div className="aspect-square bg-gray-800 rounded-lg overflow-hidden relative">
-        <img src={imageSrc} alt="loading placeholder" className="w-full h-full object-cover" style={{ filter: 'brightness(0.4)' }}/>
-        <div className="shimmer-overlay" />
-    </div>
-);
-
 
 const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
     state,
@@ -33,36 +27,50 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
     onUpscaleClick,
     onEditClick,
     onDrawClick,
+    onRegenerateClick,
+    regeneratingIndex,
     upscalingUrl,
     imageCount,
     selectedFiles,
+    uploadedFiles,
 }) => {
     
-    // FIX: Pass required props to ImageGrid during loading state.
-    if (state.isLoadingGeneration && activeTab === 'studio' && selectedFiles.length > 0) {
-        const placeholders = Array.from({ length: imageCount });
-        const sourceImage = `data:${selectedFiles[0].file.type};base64,${selectedFiles[0].base64}`;
-        return <ImageGrid
-            images={[]}
-            isLoading={true}
-            loadingPlaceholders={placeholders}
-            placeholderImage={sourceImage}
-            onImageClick={onImageClick}
-            onDownloadClick={onDownloadClick}
-            onUpscaleClick={onUpscaleClick}
-            onEditClick={onEditClick}
-            onDrawClick={onDrawClick}
-            upscalingUrl={upscalingUrl}
-        />;
-    }
+    const { isLoadingGeneration, isLoadingEditing, isLoadingBatch } = state;
 
-    const isLoading = state.isLoadingEditing || state.isLoadingBatch;
-    if (isLoading) {
-        let message = 'Generating...';
-        if (state.isLoadingEditing) message = 'Applying edits...';
-        if (state.isLoadingBatch) message = `Processing batch... (${Math.round(state.batchProgress)}%)`;
-        const progress = activeTab === 'batch' ? state.batchProgress : undefined;
-        return <Loader message={message} progress={progress} />;
+    if (isLoadingGeneration || isLoadingEditing || isLoadingBatch) {
+        let placeholders: any[] = [];
+        let sourceImages: string[] = [];
+
+        if (isLoadingGeneration && imageCount > 0) {
+            placeholders = Array.from({ length: imageCount });
+            if (selectedFiles.length > 0) {
+                const sourceImage = `data:${selectedFiles[0].file.type};base64,${selectedFiles[0].base64}`;
+                sourceImages = Array(imageCount).fill(sourceImage);
+            }
+        } else if (isLoadingEditing && selectedFiles.length > 0) {
+            placeholders = [{}];
+            sourceImages = [`data:${selectedFiles[0].file.type};base64,${selectedFiles[0].base64}`];
+        } else if (isLoadingBatch && uploadedFiles.length > 0) {
+            placeholders = uploadedFiles;
+            sourceImages = uploadedFiles.map(f => `data:${f.file.type};base64,${f.base64}`);
+        }
+
+        if (placeholders.length > 0) {
+             return <ImageGrid
+                images={[]}
+                isLoading={true}
+                loadingPlaceholders={placeholders}
+                placeholderImages={sourceImages}
+                onImageClick={onImageClick}
+                onDownloadClick={onDownloadClick}
+                onUpscaleClick={onUpscaleClick}
+                onEditClick={onEditClick}
+                onDrawClick={onDrawClick}
+                onRegenerateClick={onRegenerateClick}
+                upscalingUrl={upscalingUrl}
+                regeneratingIndex={regeneratingIndex}
+            />;
+        }
     }
 
     if (state.error) {
@@ -75,7 +83,9 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
         onUpscaleClick,
         onEditClick,
         onDrawClick,
+        onRegenerateClick,
         upscalingUrl,
+        regeneratingIndex,
     };
 
     switch (activeTab) {

@@ -1,6 +1,6 @@
 import { useReducer, useCallback } from 'react';
-import { describeImage, generateImages, editImage } from '../services/geminiService';
-import { UploadedFile } from '../types';
+import { generateImages, editImage } from '../services/geminiService';
+import { UploadedFile, ReferenceConfig } from '../types';
 
 type BatchResult = {
     original: UploadedFile;
@@ -10,22 +10,19 @@ type BatchResult = {
 }
 
 type GeneratorState = {
-  describedPrompt: string | null;
+  describedPrompt: string;
   generatedImages: string[];
   editedImage: { original: UploadedFile, result: string } | null;
   batchResults: BatchResult[];
-  isLoadingDescription: boolean;
   isLoadingGeneration: boolean;
   isLoadingEditing: boolean;
   isLoadingBatch: boolean;
   batchProgress: number;
+  regeneratingIndex: number | null;
   error: string | null;
 };
 
 type Action = 
-  | { type: 'DESCRIBE_START' }
-  | { type: 'DESCRIBE_SUCCESS', payload: string }
-  | { type: 'DESCRIBE_ERROR', payload: string }
   | { type: 'SET_PROMPT', payload: string }
   | { type: 'GENERATE_START' }
   | { type: 'GENERATE_SUCCESS', payload: string[] }
@@ -37,19 +34,22 @@ type Action =
   | { type: 'BATCH_PROGRESS', payload: { result: BatchResult, progress: number } }
   | { type: 'BATCH_SUCCESS' }
   | { type: 'BATCH_ERROR', payload: string }
+  | { type: 'REGENERATE_START', payload: number }
+  | { type: 'REGENERATE_SUCCESS', payload: { index: number, image: string } }
+  | { type: 'REGENERATE_ERROR', payload: string }
   | { type: 'CLEAR_RESULTS' }
   | { type: 'CLEAR_ERROR' };
 
 const initialState: GeneratorState = {
-  describedPrompt: null,
+  describedPrompt: '',
   generatedImages: [],
   editedImage: null,
   batchResults: [],
-  isLoadingDescription: false,
   isLoadingGeneration: false,
   isLoadingEditing: false,
   isLoadingBatch: false,
   batchProgress: 0,
+  regeneratingIndex: null,
   error: null,
 };
 
@@ -59,16 +59,11 @@ const clearResultsState = {
     batchResults: [],
     error: null,
     batchProgress: 0,
+    regeneratingIndex: null,
 }
 
 function generatorReducer(state: GeneratorState, action: Action): GeneratorState {
   switch (action.type) {
-    case 'DESCRIBE_START':
-      return { ...state, ...clearResultsState, isLoadingDescription: true };
-    case 'DESCRIBE_SUCCESS':
-      return { ...state, isLoadingDescription: false, describedPrompt: action.payload, error: null };
-    case 'DESCRIBE_ERROR':
-      return { ...state, isLoadingDescription: false, error: action.payload };
     case 'SET_PROMPT':
       return { ...state, describedPrompt: action.payload };
     case 'GENERATE_START':
@@ -91,6 +86,14 @@ function generatorReducer(state: GeneratorState, action: Action): GeneratorState
         return { ...state, isLoadingBatch: false };
     case 'BATCH_ERROR':
         return { ...state, isLoadingBatch: false, error: action.payload };
+    case 'REGENERATE_START':
+        return { ...state, regeneratingIndex: action.payload, error: null };
+    case 'REGENERATE_SUCCESS':
+        const newImages = [...state.generatedImages];
+        newImages[action.payload.index] = action.payload.image;
+        return { ...state, generatedImages: newImages, regeneratingIndex: null };
+    case 'REGENERATE_ERROR':
+        return { ...state, regeneratingIndex: null, error: action.payload };
     case 'CLEAR_RESULTS':
         return { ...state, ...clearResultsState };
     case 'CLEAR_ERROR':
@@ -103,7 +106,7 @@ function generatorReducer(state: GeneratorState, action: Action): GeneratorState
 export const useImageGenerator = () => {
   const [state, dispatch] = useReducer(generatorReducer, initialState);
 
-  const handleError = (e: unknown, type: 'DESCRIBE' | 'GENERATE' | 'EDIT' | 'BATCH') => {
+  const handleError = (e: unknown, type: 'GENERATE' | 'EDIT' | 'BATCH' | 'REGENERATE') => {
     const errorMessage = e instanceof Error ? e.message : 'An unknown error occurred.';
     console.error(e);
     dispatch({ type: `${type}_ERROR`, payload: errorMessage } as any);
@@ -112,25 +115,15 @@ export const useImageGenerator = () => {
   const clearResults = useCallback(() => {
     dispatch({ type: 'CLEAR_RESULTS' });
   }, []);
-
-  const generateDescription = useCallback(async (file: UploadedFile) => {
-    dispatch({ type: 'DESCRIBE_START' });
-    try {
-      const description = await describeImage(file.base64, file.file.type);
-      dispatch({ type: 'DESCRIBE_SUCCESS', payload: description });
-    } catch (e) {
-      handleError(e, 'DESCRIBE');
-    }
-  }, []);
   
   const setDescribedPrompt = useCallback((prompt: string) => {
       dispatch({ type: 'SET_PROMPT', payload: prompt });
   }, []);
 
-  const generateNewImages = useCallback(async (sourceFiles: UploadedFile[], prompt: string, stylePrompt: string, negativePrompt: string, count: number) => {
+  const generateNewImages = useCallback(async (sourceFiles: UploadedFile[], prompt: string, stylePrompt: string, negativePrompt: string, count: number, referenceConfig?: ReferenceConfig) => {
     dispatch({ type: 'GENERATE_START' });
     try {
-      const images = await generateImages(sourceFiles, prompt, stylePrompt, negativePrompt, count);
+      const images = await generateImages(sourceFiles, prompt, stylePrompt, negativePrompt, count, referenceConfig);
       dispatch({ type: 'GENERATE_SUCCESS', payload: images });
     } catch (e) {
       handleError(e, 'GENERATE');
@@ -163,5 +156,20 @@ export const useImageGenerator = () => {
     dispatch({ type: 'BATCH_SUCCESS' });
   }, []);
 
-  return { state, setDescribedPrompt, generateDescription, generateNewImages, editExistingImage, processBatch, clearResults };
+  const regenerateSingleImage = useCallback(async (index: number, config: any) => {
+    dispatch({ type: 'REGENERATE_START', payload: index });
+    try {
+        const { sourceFiles, prompt, stylePrompt, negativePrompt, referenceConfig } = config;
+        const images = await generateImages(sourceFiles, prompt, stylePrompt, negativePrompt, 1, referenceConfig);
+        if (images.length > 0) {
+            dispatch({ type: 'REGENERATE_SUCCESS', payload: { index, image: images[0] } });
+        } else {
+            throw new Error("AI failed to regenerate the image.");
+        }
+    } catch (e) {
+        handleError(e, 'REGENERATE');
+    }
+}, []);
+
+  return { state, setDescribedPrompt, generateNewImages, editExistingImage, processBatch, regenerateSingleImage, clearResults };
 };

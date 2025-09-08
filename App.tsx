@@ -2,9 +2,10 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Header from './components/Header';
 import ControlPanel from './components/ControlPanel';
 import ResultsDisplay from './components/ResultsDisplay';
+import Toast from './components/Toast';
 import { useImageGenerator } from './hooks/useImageGenerator';
-import { upscaleImage } from './services/geminiService';
-import type { UploadedFile, EditingImage, ActiveTab, StylePreset } from './types';
+import { upscaleImage, enhancePrompt } from './services/geminiService';
+import type { UploadedFile, EditingImage, ActiveTab, StylePreset, ReferenceConfig } from './types';
 
 // Utility to convert data URL to an UploadedFile object
 const dataUrlToUploadedFile = async (dataUrl: string, filename = 'edited-image.png'): Promise<UploadedFile> => {
@@ -14,7 +15,7 @@ const dataUrlToUploadedFile = async (dataUrl: string, filename = 'edited-image.p
     return { file, base64 };
 };
 
-const ImageViewerModal = ({ image, onClose, onDownload, isUpscaling }) => {
+const ImageViewerModal = ({ image, onClose, onDownload }) => {
   if (!image) return null;
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose} role="dialog" aria-modal="true">
@@ -22,18 +23,9 @@ const ImageViewerModal = ({ image, onClose, onDownload, isUpscaling }) => {
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors z-10" aria-label="Close image viewer"><svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
         <div className="flex-grow flex items-center justify-center overflow-hidden"><img src={image.src} alt="Generated image closeup" className="max-w-full max-h-full object-contain" /></div>
         <div className="flex-shrink-0 pt-4 flex items-center justify-center">
-            <button onClick={() => onDownload(image.src)} disabled={isUpscaling} className="flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-sky-600 hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 disabled:bg-sky-800 disabled:cursor-wait transition-all duration-200 w-48">
-              {isUpscaling ? (
-                <>
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                  Upscaling...
-                </>
-              ) : (
-                <>
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 mr-2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
-                  Download HQ
-                </>
-              )}
+            <button onClick={() => onDownload(image.src)} className="flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-sky-600 hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 transition-all duration-200 w-48">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 mr-2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+              Download
             </button>
         </div>
       </div>
@@ -168,11 +160,18 @@ export default function App() {
   const [editingImage, setEditingImage] = useState<EditingImage | null>(null);
   const [activeStyle, setActiveStyle] = useState<StylePreset>({ id: 'none', name: 'None'});
   const [upscalingUrl, setUpscalingUrl] = useState<string | null>(null);
+  const [toast, setToast] = useState<{message: string; type: 'success' | 'error'} | null>(null);
+  const [lastGenerationConfig, setLastGenerationConfig] = useState<any>(null);
+  const [isEnhancingPrompt, setIsEnhancingPrompt] = useState<boolean>(false);
 
-  const { state, setDescribedPrompt, generateDescription, generateNewImages, editExistingImage, processBatch, clearResults } = useImageGenerator();
+  const { state, setDescribedPrompt, generateNewImages, editExistingImage, processBatch, regenerateSingleImage, clearResults } = useImageGenerator();
   
   const selectedFiles = selectedFileIndices.map(i => uploadedFiles[i]).filter(Boolean);
   const primarySelectedFile = selectedFiles.length > 0 ? selectedFiles[selectedFiles.length - 1] : null;
+
+  const handleShowToast = (message: string, type: 'success' | 'error') => {
+    setToast({ message, type });
+  };
 
   const handleTabChange = (tab: ActiveTab) => {
     clearResults();
@@ -188,11 +187,8 @@ export default function App() {
     setUploadedFiles(prev => [...prev, ...newFiles]);
     if (selectedFileIndices.length === 0 && newFiles.length > 0) {
         setSelectedFileIndices([newFileStartIndex]);
-        if(activeTab === 'studio') {
-            generateDescription(newFiles[0]);
-        }
     }
-  }, [selectedFileIndices, uploadedFiles, activeTab, generateDescription]);
+  }, [selectedFileIndices.length]);
 
   const handleFileSelect = useCallback((index: number) => {
     let newIndices;
@@ -208,27 +204,21 @@ export default function App() {
     
     setSelectedFileIndices(newIndices);
 
-    if (activeTab === 'studio' && !isCurrentlySelected && newIndices.length === 1) {
-        // If this is the first file selected in studio mode, generate a description
-        generateDescription(uploadedFiles[index]);
-    } else if (activeTab === 'studio' && newIndices.length === 0) {
-        setDescribedPrompt('');
+    if (activeTab === 'studio' && newIndices.length === 0) {
+        // We no longer clear prompt here to support text-to-image
     }
 
-  }, [activeTab, uploadedFiles, generateDescription, selectedFileIndices, setDescribedPrompt]);
+  }, [activeTab, selectedFileIndices]);
   
   const handleFileRemove = useCallback((index: number) => {
     setUploadedFiles(prev => prev.filter((_, i) => i !== index));
     const newSelectedIndices = selectedFileIndices.filter(i => i !== index).map(i => i > index ? i - 1 : i);
     setSelectedFileIndices(newSelectedIndices);
     
-    if (newSelectedIndices.length > 0 && activeTab === 'studio') {
-        const lastSelectedFile = uploadedFiles[newSelectedIndices[newSelectedIndices.length - 1]];
-        generateDescription(lastSelectedFile);
-    } else {
+    if (newSelectedIndices.length === 0) {
         clearResults();
     }
-  }, [selectedFileIndices, uploadedFiles, activeTab, generateDescription, clearResults]);
+  }, [selectedFileIndices, clearResults]);
   
   const handleRemoveAllFiles = useCallback(() => {
       setUploadedFiles([]);
@@ -236,9 +226,11 @@ export default function App() {
       clearResults();
   }, [clearResults]);
 
-  const handleGenerateClick = useCallback((userPrompt: string, stylePrompt: string, negativePrompt: string) => {
-    if (selectedFiles.length > 0 && userPrompt) {
-      generateNewImages(selectedFiles, userPrompt, stylePrompt, negativePrompt, imageCount);
+  const handleGenerateClick = useCallback((userPrompt: string, stylePrompt: string, negativePrompt: string, referenceConfig?: ReferenceConfig) => {
+    if (userPrompt || selectedFiles.length > 0) {
+      const config = { sourceFiles: selectedFiles, prompt: userPrompt, stylePrompt, negativePrompt, referenceConfig };
+      setLastGenerationConfig(config);
+      generateNewImages(selectedFiles, userPrompt, stylePrompt, negativePrompt, imageCount, referenceConfig);
     }
   }, [selectedFiles, imageCount, generateNewImages]);
 
@@ -254,6 +246,33 @@ export default function App() {
       }
   }, [uploadedFiles, processBatch]);
 
+  const handleRegenerateClick = useCallback((index: number) => {
+      if (lastGenerationConfig) {
+          regenerateSingleImage(index, lastGenerationConfig);
+      } else {
+          setToast({ message: "No recent generation context found. Please generate images first.", type: 'error' });
+      }
+  }, [lastGenerationConfig, regenerateSingleImage]);
+
+  const handleEnhancePrompt = useCallback(async () => {
+    if (!state.describedPrompt) {
+        handleShowToast("Please enter a prompt to enhance.", 'error');
+        return;
+    }
+    setIsEnhancingPrompt(true);
+    try {
+        const enhanced = await enhancePrompt(state.describedPrompt);
+        setDescribedPrompt(enhanced);
+        handleShowToast("Prompt enhanced successfully!", 'success');
+    } catch (error) {
+        console.error("Failed to enhance prompt:", error);
+        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+        handleShowToast(errorMessage, 'error');
+    } finally {
+        setIsEnhancingPrompt(false);
+    }
+  }, [state.describedPrompt, setDescribedPrompt]);
+
   const handleUpscaleAndDisplay = async (imageUrl: string) => {
       if (upscalingUrl) return;
       setUpscalingUrl(imageUrl);
@@ -262,34 +281,23 @@ export default function App() {
           setModalImage({ src: upscaledImageSrc });
       } catch (error) {
           console.error("Failed to upscale image:", error);
-          alert("AI upscaling failed. Please try again.");
+          setToast({ message: "AI upscaling failed. Please try again.", type: 'error' });
       } finally {
           setUpscalingUrl(null);
       }
   };
   
-  const handleDownload = async (imageUrl: string) => {
-    setUpscalingUrl(imageUrl);
+  const handleDownload = (imageUrl: string) => {
     try {
-        const upscaledImage = await performUpscale(imageUrl);
         const link = document.createElement('a');
-        link.href = upscaledImage;
-        link.download = `paka-studio-hq-${Date.now()}.png`;
+        link.href = imageUrl;
+        link.download = `paka-studio-${Date.now()}.png`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
     } catch (error) {
-        console.error("Failed to upscale image:", error);
-        alert("AI upscaling failed. Downloading the original image instead.");
-        // Fallback to download original
-        const link = document.createElement('a');
-        link.href = imageUrl;
-        link.download = `paka-studio-original-${Date.now()}.png`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    } finally {
-        setUpscalingUrl(null);
+        console.error("Failed to prepare image for download:", error);
+        setToast({ message: "Failed to prepare image for download.", type: 'error' });
     }
   };
   
@@ -344,6 +352,13 @@ export default function App() {
           0% { background-position: 200% 0; }
           100% { background-position: -200% 0; }
         }
+       @keyframes toast-in {
+        from { transform: translate(-50%, -100%); opacity: 0; }
+        to { transform: translate(-50%, 0); opacity: 1; }
+      }
+      .animate-toast-in {
+        animation: toast-in 0.5s cubic-bezier(0.21, 1.02, 0.73, 1);
+      }
       `}</style>
       <Header />
       <main className="container mx-auto px-4 py-8">
@@ -359,24 +374,30 @@ export default function App() {
               onImageEditRequest={(index) => handleOpenEditor(uploadedFiles[index], `data:${uploadedFiles[index].file.type};base64,${uploadedFiles[index].base64}`)}
               uploadedFiles={uploadedFiles}
               selectedFileIndices={selectedFileIndices}
+              onShowToast={handleShowToast}
               studioConfig={{
                 imageCount,
                 onImageCountChange: setImageCount,
                 activeStyle,
                 onStyleChange: setActiveStyle,
                 onGenerateClick: handleGenerateClick,
-                isGenerationDisabled: selectedFiles.length === 0 || !state.describedPrompt || state.isLoadingGeneration,
+                isGenerationDisabled: (state.describedPrompt.trim() === '' && selectedFiles.length === 0) || state.isLoadingGeneration,
+                isLoading: state.isLoadingGeneration,
                 describedPrompt: state.describedPrompt,
                 onDescribedPromptChange: setDescribedPrompt,
-                isLoading: state.isLoadingDescription,
+                onEnhancePrompt: handleEnhancePrompt,
+                isEnhancingPrompt: isEnhancingPrompt,
               }}
               retouchConfig={{
                 onRetouchClick: handleRetouchClick,
                 isRetouchDisabled: selectedFiles.length === 0 || state.isLoadingEditing,
+                isLoading: state.isLoadingEditing,
               }}
               batchConfig={{
                   onBatchProcess: handleBatchProcess,
                   isBatchDisabled: uploadedFiles.length === 0 || state.isLoadingBatch,
+                  isLoading: state.isLoadingBatch,
+                  batchProgress: state.batchProgress,
               }}
             />
           </div>
@@ -393,15 +414,19 @@ export default function App() {
                     const file = await dataUrlToUploadedFile(src);
                     handleOpenEditor(file, src);
                 }}
+                onRegenerateClick={handleRegenerateClick}
+                regeneratingIndex={state.regeneratingIndex}
                 upscalingUrl={upscalingUrl}
                 imageCount={imageCount}
                 selectedFiles={selectedFiles}
+                uploadedFiles={uploadedFiles}
             />
           </div>
         </div>
       </main>
-      <ImageViewerModal image={modalImage} onClose={() => setModalImage(null)} onDownload={handleDownload} isUpscaling={upscalingUrl === modalImage?.src} />
+      <ImageViewerModal image={modalImage} onClose={() => setModalImage(null)} onDownload={handleDownload} />
       <ImageEditorModal image={editingImage} onClose={() => setEditingImage(null)} onSave={handleEditorSave} />
+      <Toast toast={toast} onClose={() => setToast(null)} />
       <footer className="text-center py-4 text-gray-600 text-sm"><p>Powered by Gemini. All generated images are AI-creations from Paka Studio.</p></footer>
     </div>
   );

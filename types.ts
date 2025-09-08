@@ -22,3 +22,10 @@ export type StylePreset =
     | { id: 'cyberpunk', name: 'Cyberpunk' }
     | { id: 'watercolor', name: 'Watercolor' }
     | { id: '3d', name: '3D Render' };
+
+export type ReferenceAspect = 'pose' | 'style' | 'outfit' | 'background' | 'color' | 'composition';
+
+export interface ReferenceConfig {
+    file: UploadedFile;
+    aspects: ReferenceAspect[];
+}
