@@ -10,6 +10,8 @@ export interface EditingImage {
 
 export type ActiveTab = 'studio' | 'retouch' | 'batch';
 
+export type AspectRatio = '1:1' | '4:3' | '3:4' | '16:9' | '9:16';
+
 export type StylePreset = 
     | { id: 'none', name: 'None' }
     | { id: 'photorealistic', name: 'Photorealistic' }

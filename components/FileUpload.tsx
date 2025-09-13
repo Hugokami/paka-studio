@@ -15,6 +15,53 @@ const UploadIcon = (props) => <svg xmlns="http://www.w3.org/2000/svg" fill="none
 const EditIcon = (props) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" /></svg>;
 const CloseIcon = (props) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>;
 
+const resizeImage = (file: File): Promise<File> => {
+    return new Promise((resolve) => {
+        const MAX_DIMENSION = 1568;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                let { width, height } = img;
+                if (width <= MAX_DIMENSION && height <= MAX_DIMENSION) {
+                    return resolve(file);
+                }
+
+                if (width > height) {
+                    if (width > MAX_DIMENSION) {
+                        height = Math.round(height * (MAX_DIMENSION / width));
+                        width = MAX_DIMENSION;
+                    }
+                } else {
+                    if (height > MAX_DIMENSION) {
+                        width = Math.round(width * (MAX_DIMENSION / height));
+                        height = MAX_DIMENSION;
+                    }
+                }
+                
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                canvas.toBlob((blob) => {
+                    if (blob) {
+                        const resizedFile = new File([blob], file.name, {
+                            type: file.type,
+                            lastModified: Date.now(),
+                        });
+                        resolve(resizedFile);
+                    } else {
+                        resolve(file); // Fallback to original
+                    }
+                }, file.type, 0.9);
+            };
+            img.src = e.target.result as string;
+        };
+        reader.readAsDataURL(file);
+    });
+};
 
 const FileUpload: React.FC<FileUploadProps> = ({ onFilesSelect, uploadedFiles, selectedFileIndices, onFileSelect, onFileRemove, onRemoveAllFiles, onImageEditRequest }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -24,14 +71,15 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFilesSelect, uploadedFiles, s
 
     const fileList = Array.from(files).filter(file => file.type.startsWith('image/'));
     
-    const filePromises = fileList.map(file => {
+    const filePromises = fileList.map(async file => {
+      const resizedFile = await resizeImage(file);
       return new Promise<{file: File, base64: string}>((resolve) => {
         const reader = new FileReader();
         reader.onloadend = () => {
           const base64String = (reader.result as string).split(',')[1];
-          resolve({ file, base64: base64String });
+          resolve({ file: resizedFile, base64: base64String });
         };
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(resizedFile);
       });
     });
     

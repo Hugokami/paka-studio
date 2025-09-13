@@ -1,6 +1,6 @@
 import { useReducer, useCallback } from 'react';
 import { generateImages, editImage } from '../services/geminiService';
-import { UploadedFile, ReferenceConfig } from '../types';
+import { UploadedFile, ReferenceConfig, AspectRatio } from '../types';
 
 type BatchResult = {
     original: UploadedFile;
@@ -120,10 +120,10 @@ export const useImageGenerator = () => {
       dispatch({ type: 'SET_PROMPT', payload: prompt });
   }, []);
 
-  const generateNewImages = useCallback(async (sourceFiles: UploadedFile[], prompt: string, stylePrompt: string, negativePrompt: string, count: number, referenceConfig?: ReferenceConfig) => {
+  const generateNewImages = useCallback(async (sourceFiles: UploadedFile[], prompt: string, stylePrompt: string, negativePrompt: string, count: number, aspectRatio: AspectRatio, referenceConfig?: ReferenceConfig, seed?: number) => {
     dispatch({ type: 'GENERATE_START' });
     try {
-      const images = await generateImages(sourceFiles, prompt, stylePrompt, negativePrompt, count, referenceConfig);
+      const images = await generateImages(sourceFiles, prompt, stylePrompt, negativePrompt, count, aspectRatio, referenceConfig, seed);
       dispatch({ type: 'GENERATE_SUCCESS', payload: images });
     } catch (e) {
       handleError(e, 'GENERATE');
@@ -159,8 +159,8 @@ export const useImageGenerator = () => {
   const regenerateSingleImage = useCallback(async (index: number, config: any) => {
     dispatch({ type: 'REGENERATE_START', payload: index });
     try {
-        const { sourceFiles, prompt, stylePrompt, negativePrompt, referenceConfig } = config;
-        const images = await generateImages(sourceFiles, prompt, stylePrompt, negativePrompt, 1, referenceConfig);
+        const { sourceFiles, prompt, stylePrompt, negativePrompt, referenceConfig, aspectRatio, seed } = config;
+        const images = await generateImages(sourceFiles, prompt, stylePrompt, negativePrompt, 1, aspectRatio, referenceConfig, seed);
         if (images.length > 0) {
             dispatch({ type: 'REGENERATE_SUCCESS', payload: { index, image: images[0] } });
         } else {

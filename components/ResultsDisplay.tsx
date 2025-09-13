@@ -8,6 +8,7 @@ interface ResultsDisplayProps {
     activeTab: 'studio' | 'retouch' | 'batch';
     onImageClick: (src: string) => void;
     onDownloadClick: (src: string, ext?: 'png') => void;
+    onCopyClick: (src: string) => void;
     onUpscaleClick: (src: string) => void;
     onEditClick: (src: string) => void;
     onDrawClick: (src: string) => void;
@@ -24,6 +25,7 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
     activeTab,
     onImageClick,
     onDownloadClick,
+    onCopyClick,
     onUpscaleClick,
     onEditClick,
     onDrawClick,
@@ -58,11 +60,14 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
         if (placeholders.length > 0) {
              return <ImageGrid
                 images={[]}
+                // Fix: Added missing batchResults prop
+                batchResults={null}
                 isLoading={true}
                 loadingPlaceholders={placeholders}
                 placeholderImages={sourceImages}
                 onImageClick={onImageClick}
                 onDownloadClick={onDownloadClick}
+                onCopyClick={onCopyClick}
                 onUpscaleClick={onUpscaleClick}
                 onEditClick={onEditClick}
                 onDrawClick={onDrawClick}
@@ -80,6 +85,7 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
     const imageGridProps = {
         onImageClick,
         onDownloadClick,
+        onCopyClick,
         onUpscaleClick,
         onEditClick,
         onDrawClick,
@@ -91,20 +97,20 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
     switch (activeTab) {
         case 'studio':
             if (state.generatedImages.length > 0) {
-                return <ImageGrid images={state.generatedImages} {...imageGridProps} />;
+                // Fix: Added missing batchResults prop
+                return <ImageGrid images={state.generatedImages} batchResults={null} {...imageGridProps} />;
             }
             break;
         case 'retouch':
             if (state.editedImage) {
-                return <ImageGrid images={[state.editedImage.result]} {...imageGridProps} />;
+                // Fix: Added missing batchResults prop
+                return <ImageGrid images={[state.editedImage.result]} batchResults={null} {...imageGridProps} />;
             }
             break;
         case 'batch':
              if (state.batchResults.length > 0) {
-                 const successfulResults = state.batchResults.filter(r => r.status === 'success').map(r => r.result);
-                 if (successfulResults.length > 0) {
-                    return <ImageGrid images={successfulResults} {...imageGridProps} />;
-                 }
+                // Fix: Added missing images prop
+                return <ImageGrid images={[]} batchResults={state.batchResults} {...imageGridProps} />;
              }
              break;
         default:

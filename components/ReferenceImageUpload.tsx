@@ -17,6 +17,55 @@ interface ReferenceImageUploadProps {
     onChange: (config: ReferenceConfig | null) => void;
 }
 
+const resizeImage = (file: File): Promise<File> => {
+    return new Promise((resolve) => {
+        const MAX_DIMENSION = 1568;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                let { width, height } = img;
+                if (width <= MAX_DIMENSION && height <= MAX_DIMENSION) {
+                    return resolve(file);
+                }
+
+                if (width > height) {
+                    if (width > MAX_DIMENSION) {
+                        height = Math.round(height * (MAX_DIMENSION / width));
+                        width = MAX_DIMENSION;
+                    }
+                } else {
+                    if (height > MAX_DIMENSION) {
+                        width = Math.round(width * (MAX_DIMENSION / height));
+                        height = MAX_DIMENSION;
+                    }
+                }
+                
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                canvas.toBlob((blob) => {
+                    if (blob) {
+                        const resizedFile = new File([blob], file.name, {
+                            type: file.type,
+                            lastModified: Date.now(),
+                        });
+                        resolve(resizedFile);
+                    } else {
+                        resolve(file); // Fallback to original
+                    }
+                }, file.type, 0.9);
+            };
+            img.src = e.target.result as string;
+        };
+        reader.readAsDataURL(file);
+    });
+};
+
+
 const ReferenceImageUpload: React.FC<ReferenceImageUploadProps> = ({ onChange }) => {
     const [guideFile, setGuideFile] = useState<UploadedFile | null>(null);
     const [selectedAspects, setSelectedAspects] = useState<ReferenceAspect[]>([]);
@@ -35,15 +84,17 @@ const ReferenceImageUpload: React.FC<ReferenceImageUploadProps> = ({ onChange })
 
         const file = files[0];
         if (!file.type.startsWith('image/')) return;
+        
+        const resizedFile = await resizeImage(file);
 
         const reader = new FileReader();
         reader.onloadend = () => {
             const base64String = (reader.result as string).split(',')[1];
-            const newFile = { file, base64: base64String };
+            const newFile = { file: resizedFile, base64: base64String };
             setGuideFile(newFile);
             updateParent(newFile, selectedAspects);
         };
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(resizedFile);
     }, [selectedAspects]);
 
     const handleRemoveFile = () => {
